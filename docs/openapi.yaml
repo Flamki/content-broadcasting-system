@@ -17,6 +17,8 @@ info:
     - `TEACHER` — Upload content, view own uploads
     - `PRINCIPAL` — Manage all content, approve/reject, view analytics
 servers:
+  - url: https://content-broadcasting-api.onrender.com
+    description: Production (Render)
   - url: http://localhost:4000
     description: Local development
 tags:
