@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PRINCIPAL
+  TEACHER
+}
+
+enum ContentStatus {
+  UPLOADED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                Int           @id @default(autoincrement())
+  name              String
+  email             String        @unique
+  passwordHash      String
+  role              UserRole
+  createdAt         DateTime      @default(now())
+  uploadedContents  Content[]     @relation("UploadedBy")
+  approvedContents  Content[]     @relation("ApprovedBy")
+  slots             ContentSlot[]
+
+  @@map("users")
+}
+
+model Content {
+  id               Int            @id @default(autoincrement())
+  title            String
+  description      String?
+  subject          String
+  filePath         String
+  fileType         String
+  fileSize         Int
+  uploadedById     Int
+  status           ContentStatus  @default(PENDING)
+  rejectionReason  String?
+  approvedById     Int?
+  approvedAt       DateTime?
+  startTime        DateTime?
+  endTime          DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  uploadedBy       User           @relation("UploadedBy", fields: [uploadedById], references: [id])
+  approvedBy       User?          @relation("ApprovedBy", fields: [approvedById], references: [id])
+  schedule         ContentSchedule?
+
+  @@index([status, uploadedById])
+  @@index([subject, status])
+  @@map("content")
+}
+
+model ContentSlot {
+  id         Int               @id @default(autoincrement())
+  subject    String
+  teacherId  Int
+  createdAt  DateTime          @default(now())
+  teacher    User              @relation(fields: [teacherId], references: [id])
+  schedules  ContentSchedule[]
+
+  @@unique([subject, teacherId])
+  @@index([teacherId, subject])
+  @@map("content_slots")
+}
+
+model ContentSchedule {
+  id              Int       @id @default(autoincrement())
+  contentId       Int       @unique
+  slotId          Int
+  rotationOrder   Int
+  durationMinutes Int       @default(5)
+  createdAt       DateTime  @default(now())
+  content         Content   @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  slot            ContentSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  @@unique([slotId, rotationOrder])
+  @@index([slotId])
+  @@map("content_schedule")
+}

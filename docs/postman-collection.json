@@ -1,0 +1,301 @@
+{
+  "info": {
+    "name": "Content Broadcasting System",
+    "description": "Complete API collection for the Content Broadcasting System.\n\n**Setup:**\n1. Set the `baseUrl` variable to your server URL\n2. Register or login to get a JWT token\n3. The token is automatically saved to the `authToken` variable\n\n**Seed Credentials:**\n- Principal: principal@example.com / Principal@123\n- Teacher 1: teacher1@example.com / Teacher@123\n- Teacher 2: teacher2@example.com / Teacher@123",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register (Teacher)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  var json = pm.response.json();",
+                  "  pm.collectionVariables.set('authToken', json.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Teacher\",\n  \"email\": \"newteacher@example.com\",\n  \"password\": \"Teacher@123\",\n  \"role\": \"TEACHER\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Principal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var json = pm.response.json();",
+                  "  pm.collectionVariables.set('authToken', json.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"principal@example.com\",\n  \"password\": \"Principal@123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Teacher 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var json = pm.response.json();",
+                  "  pm.collectionVariables.set('authToken', json.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"teacher1@example.com\",\n  \"password\": \"Teacher@123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Teacher 2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var json = pm.response.json();",
+                  "  pm.collectionVariables.set('authToken', json.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"teacher2@example.com\",\n  \"password\": \"Teacher@123\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Teacher",
+      "item": [
+        {
+          "name": "Upload Content",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/content/upload",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "title", "value": "Chapter 2 Worksheet", "type": "text" },
+                { "key": "subject", "value": "maths", "type": "text" },
+                { "key": "description", "value": "Algebra worksheet for grade 10", "type": "text" },
+                { "key": "startTime", "value": "2026-04-27T09:00:00.000Z", "type": "text" },
+                { "key": "endTime", "value": "2026-04-30T17:00:00.000Z", "type": "text" },
+                { "key": "rotationDurationMinutes", "value": "5", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "View My Content",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/my",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Principal",
+      "item": [
+        {
+          "name": "List All Content",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/content/admin/all?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "admin", "all"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "PENDING", "disabled": true },
+                { "key": "subject", "value": "maths", "disabled": true },
+                { "key": "teacherId", "value": "2", "disabled": true }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ]
+          }
+        },
+        {
+          "name": "List Pending Content",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/admin/pending",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ]
+          }
+        },
+        {
+          "name": "Approve Content",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/content/admin/1/approve",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ]
+          }
+        },
+        {
+          "name": "Reject Content",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/content/admin/1/reject",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Image quality is too low, please re-upload with higher resolution\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Subject Analytics",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/analytics/subjects",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public (No Auth)",
+      "item": [
+        {
+          "name": "Live Content (Teacher 1)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/live/teacher-1"
+          }
+        },
+        {
+          "name": "Live Content (Teacher 1 - Maths)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/content/live/teacher-1?subject=maths",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "live", "teacher-1"],
+              "query": [
+                { "key": "subject", "value": "maths" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Live Content (Teacher 2)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/live/teacher-2"
+          }
+        },
+        {
+          "name": "Live Content (by numeric ID)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/live/2"
+          }
+        },
+        {
+          "name": "Live Content (Invalid Teacher)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/content/live/invalid-key"
+          }
+        }
+      ]
+    }
+  ]
+}

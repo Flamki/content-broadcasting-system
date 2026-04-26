@@ -1,0 +1,183 @@
+Content Broadcasting System - Architecture Notes
+===============================================
+
+1) Authentication and RBAC Flow
+-------------------------------
+- Users register/login via /api/auth/* endpoints.
+- Passwords are hashed using bcrypt (10 rounds) before storage.
+- Login returns JWT (Bearer token) with configurable expiry (default 12h).
+- Auth middleware validates JWT and loads user from DB.
+- Role middleware enforces strict RBAC:
+  - TEACHER: upload/view own content.
+  - PRINCIPAL: view all/pending, approve, reject, view analytics.
+- Public live endpoint does not require JWT.
+- Auth endpoints have a stricter rate limit (20 req / 15 min) to prevent brute-force.
+- Only one PRINCIPAL account is allowed system-wide (enforced at registration).
+
+2) Subject-Based System Design
+------------------------------
+- Content is always tied to a subject (normalized lowercase).
+- Rotation is isolated by teacher and subject via ContentSlot table:
+  - one slot per (teacher, subject).
+- ContentSchedule stores:
+  - slot_id
+  - rotation_order
+  - duration_minutes
+- This keeps each subject independent while still supporting teacher-specific public feed.
+- Analytics endpoint provides per-subject breakdown with approval stats.
+
+3) Upload Handling Approach
+---------------------------
+- Multer handles multipart uploads with memory storage.
+- A storage service decides final persistence based on STORAGE_DRIVER:
+  - local: writes under /uploads/teacher-{id}/{subject}/...
+  - s3: uploads object to configured S3 bucket key path
+- Enforced constraints:
+  - allowed formats: JPG, PNG, GIF
+  - max size from env (default 10MB)
+- Metadata fields are validated with zod before business processing.
+- Unique file names are generated with timestamp + UUID prefix to prevent collisions.
+
+4) Approval Workflow Design
+---------------------------
+- Teacher upload creates content in PENDING state.
+- Principal can approve or reject:
+  - approve sets APPROVED + approved_by + approved_at
+  - reject sets REJECTED + rejection_reason + approved_by + approved_at
+- Rejection requires reason (min 3 chars enforced by zod).
+- Public live endpoint serves only APPROVED content.
+- State machine guard: rejected content cannot be directly approved (prevents bypassing review).
+- On approval/rejection, Redis cache is invalidated for the affected teacher.
+
+5) Scheduling and Rotation Logic (CORE)
+----------------------------------------
+- Live endpoint is teacher-scoped: /api/content/live/:teacherKey
+- Filtered dataset includes only content that is:
+  - approved
+  - belongs to teacher
+  - currently inside [start_time, end_time]
+- If subject filter is passed, selection is narrowed to that subject.
+- For each subject group:
+  - sort by rotation_order (stable: ties broken by id)
+  - compute total cycle duration (sum of all item durations in seconds)
+  - use anchor (earliest schedule.createdAt in group) as cycle start reference
+  - calculate elapsed = floor((now - anchor) / 1000) % totalCycleSeconds
+  - walk through items accumulating durations until elapsed is consumed
+  - return the item whose duration window covers the current offset
+- If no eligible item exists, response is empty with message "No content available".
+- Minimum duration enforcement: durations below 1 minute are clamped to 1 minute.
+- Content without start_time/end_time is never served on the live endpoint.
+
+6) Database Design Decisions
+----------------------------
+- Users table includes role-based identity (UserRole enum).
+- Content table stores upload metadata, approval state, and schedule window.
+- ContentSlot enables teacher+subject scoped broadcast channels.
+  - unique constraint on (subject, teacherId) prevents duplicate slots.
+- ContentSchedule keeps explicit order and duration for deterministic rotations.
+  - unique constraint on (slotId, rotationOrder) ensures no ordering collisions.
+- Indexes added around status/subject/teacher access patterns for faster live queries:
+  - content(status, uploadedById) — for listing teacher's content by status
+  - content(subject, status) — for subject-filtered live queries
+  - content_slots(teacherId, subject) — for slot lookups
+  - content_schedule(slotId) — for rotation group queries
+
+7) Folder Structure
+-------------------
+- controllers: route handlers only (thin — delegate to services)
+- services: business logic and DB orchestration
+  - auth.service: registration/login logic
+  - content.service: upload, listing, approval/rejection
+  - live.service: live broadcast + rotation algorithm
+  - storage.service: local/S3 file persistence
+  - cache.service: Redis cache abstraction
+  - analytics.service: subject-wise analytics
+- middlewares: auth, RBAC, validation, upload, error, rate-limiting
+- validators: zod schemas per endpoint group
+- utils: reusable helpers (JWT, async wrapper, custom errors, subject normalizer)
+- config: environment, database, Redis
+- prisma: schema + seed + migrations
+- docs: OpenAPI spec, S3 setup guides
+
+8) Middleware Usage
+-------------------
+- helmet/cors/morgan for security and observability baseline.
+- authenticate middleware secures private APIs.
+- requireRole middleware enforces role restrictions.
+- validate middleware centralizes request schema checks using zod.
+- upload middleware enforces file type and size constraints via multer.
+- error middleware normalizes all API errors (structured logging for unexpected errors).
+- Rate limiting middleware (three tiers):
+  - Global: 100 requests per minute per IP (all endpoints)
+  - Auth: 20 requests per 15 minutes per IP (login/register only)
+  - Public: 60 requests per minute per IP (live endpoint only)
+
+9) Caching Strategy (Redis)
+----------------------------
+- Redis is optional — the app works fully without it (graceful fallback).
+- Live endpoint responses are cached with configurable TTL (default 30s).
+- Cache keys: live:{teacherKey}:{subject|all}
+- Cache invalidation triggers:
+  - Content approval → invalidate all cache for that teacher
+  - Content rejection → invalidate all cache for that teacher
+- Connection failures are handled silently (no app crash).
+- Cache hit returns immediately, cache miss fetches from DB and stores result.
+
+10) Rate Limiting
+-----------------
+- Implemented using express-rate-limit.
+- Three separate limiters for different threat models:
+  - Global: prevents general API abuse
+  - Auth: prevents credential brute-forcing
+  - Public: prevents live endpoint flooding
+- Returns standard rate-limit headers (RateLimit-*).
+- Returns 429 with clear message when limit exceeded.
+
+11) Analytics System
+--------------------
+- GET /api/analytics/subjects (Principal only)
+- Provides:
+  - Overview: total content, approved/pending/rejected counts, currently live count
+  - Most active subject (by approved content volume)
+  - Per-subject breakdown with status distribution
+  - Per-teacher breakdown with content volume and status stats
+- Uses Prisma groupBy for efficient aggregation.
+
+12) Scalability Approach (Current + Future)
+-------------------------------------------
+Current:
+- Stateless JWT auth (horizontally scalable).
+- Indexed DB queries for common access patterns.
+- Clear separation of layers (controller → service → data).
+- Redis caching on hot path (live endpoint).
+- Rate limiting prevents resource exhaustion.
+- Docker + docker-compose for reproducible deployment.
+- Graceful shutdown with SIGTERM/SIGINT handling.
+
+Future improvements:
+- Redis cache for /content/admin responses per principal.
+- Queue-based workflow (BullMQ/SQS) for heavy media post-processing.
+- CDN-backed asset serving for uploads.
+- WebSocket push for real-time content rotation updates.
+- Database read replicas for scaling read-heavy live queries.
+- Prometheus/Grafana metrics for monitoring rotation accuracy.
+- Add per-content view tracking for detailed analytics.
+
+13) API Documentation
+---------------------
+- OpenAPI 3.0 spec at docs/openapi.yaml.
+- Swagger UI served at /api-docs in development.
+- Postman collection available at docs/postman-collection.json.
+
+14) Testing Approach
+--------------------
+- Unit tests using Node.js built-in test runner (node:test).
+- Tested components:
+  - parseTeacherKey: all input variants (prefixed, numeric, invalid, edge cases)
+  - pickActiveFromGroup: rotation, single item, empty group, mixed durations, 
+    sort order, zero duration, items without schedule
+  - normalizeSubject: lowercase, trim, null/undefined, non-string
+  - ApiError: constructor, details storage, inheritance
+  - JWT: sign/verify roundtrip, invalid token rejection
+  - Cache key builder: with/without subject
+- Run: npm test

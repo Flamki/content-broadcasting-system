@@ -1,0 +1,414 @@
+openapi: 3.0.3
+info:
+  title: Content Broadcasting System API
+  version: 1.0.0
+  description: |
+    Backend API for the Content Broadcasting System.
+    
+    **Features:**
+    - Teacher uploads content (images) grouped by subject
+    - Principal reviews and approves/rejects content
+    - Public live broadcasting endpoint with per-subject time-based rotation
+    - Subject-wise analytics dashboard
+    - Redis caching on live endpoint (optional)
+    - Rate limiting on all endpoints
+    
+    **Roles:**
+    - `TEACHER` — Upload content, view own uploads
+    - `PRINCIPAL` — Manage all content, approve/reject, view analytics
+servers:
+  - url: http://localhost:4000
+    description: Local development
+tags:
+  - name: Health
+    description: Server health check
+  - name: Auth
+    description: Authentication (register / login)
+  - name: Teacher
+    description: Teacher operations (upload, view own)
+  - name: Principal
+    description: Principal operations (manage content, analytics)
+  - name: Public
+    description: Public live broadcasting (no auth required)
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: "Server is healthy" }
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user (teacher or principal)
+      description: |
+        Creates a new user account. Only one PRINCIPAL account is allowed system-wide.
+        Rate limited to 20 requests per 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, role]
+              properties:
+                name: { type: string, example: "John Doe" }
+                email: { type: string, format: email, example: "john@example.com" }
+                password: { type: string, minLength: 8, example: "Secret@123" }
+                role:
+                  type: string
+                  enum: [PRINCIPAL, TEACHER]
+                  example: TEACHER
+      responses:
+        "201":
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+        "409":
+          description: Email already registered
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      description: |
+        Authenticates a user and returns a JWT token.
+        Rate limited to 20 requests per 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: "teacher1@example.com" }
+                password: { type: string, example: "Teacher@123" }
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /api/content/upload:
+    post:
+      tags: [Teacher]
+      summary: Upload content (Teacher only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, title, subject]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file (JPG, PNG, or GIF, max 10MB)
+                title:
+                  type: string
+                  example: "Chapter 2 Worksheet"
+                subject:
+                  type: string
+                  example: "maths"
+                description:
+                  type: string
+                  example: "Algebra worksheet for grade 10"
+                startTime:
+                  type: string
+                  format: date-time
+                  example: "2026-04-27T09:00:00.000Z"
+                endTime:
+                  type: string
+                  format: date-time
+                  example: "2026-04-27T17:00:00.000Z"
+                rotationDurationMinutes:
+                  type: integer
+                  minimum: 1
+                  example: 5
+      responses:
+        "201":
+          description: Content uploaded and sent for approval
+        "400":
+          description: Validation error or invalid file
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not a teacher
+
+  /api/content/my:
+    get:
+      tags: [Teacher]
+      summary: View own uploaded content (Teacher only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of teacher's uploaded content
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not a teacher
+
+  /api/content/admin/all:
+    get:
+      tags: [Principal]
+      summary: List all content with filters (Principal only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [UPLOADED, PENDING, APPROVED, REJECTED]
+        - in: query
+          name: subject
+          schema:
+            type: string
+            example: maths
+        - in: query
+          name: teacherId
+          schema:
+            type: integer
+            example: 2
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Paginated list of content
+
+  /api/content/admin/pending:
+    get:
+      tags: [Principal]
+      summary: List pending content for review (Principal only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pending content list
+
+  /api/content/admin/{id}/approve:
+    patch:
+      tags: [Principal]
+      summary: Approve content (Principal only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Content approved
+        "404":
+          description: Content not found
+        "400":
+          description: Invalid state transition
+
+  /api/content/admin/{id}/reject:
+    patch:
+      tags: [Principal]
+      summary: Reject content with reason (Principal only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  example: "Image quality is too low"
+      responses:
+        "200":
+          description: Content rejected
+        "404":
+          description: Content not found
+
+  /api/content/live/{teacherKey}:
+    get:
+      tags: [Public]
+      summary: Get currently active content for a teacher (Public — no auth)
+      description: |
+        Returns the currently active (broadcasting) content for the specified teacher,
+        applying subject-based rotation logic. Supports optional subject filter.
+        
+        Rate limited to 60 requests per minute per IP.
+        Responses may be cached via Redis (30s TTL).
+        
+        **Edge cases handled:**
+        - Invalid teacher key → empty items
+        - No approved content → empty items with "No content available"
+        - Approved but outside schedule window → empty items
+        - Invalid subject filter → empty items
+      parameters:
+        - in: path
+          name: teacherKey
+          required: true
+          schema:
+            type: string
+            example: teacher-1
+          description: "Teacher identifier (teacher-{id} or numeric id)"
+        - in: query
+          name: subject
+          schema:
+            type: string
+            example: maths
+          description: "Optional subject filter"
+      responses:
+        "200":
+          description: Active content per subject (or empty if none)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string, example: "No content available" }
+                  data:
+                    type: object
+                    properties:
+                      teacher:
+                        type: object
+                        properties:
+                          id: { type: integer }
+                          name: { type: string }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            subject: { type: string }
+                            content:
+                              type: object
+                              properties:
+                                id: { type: integer }
+                                title: { type: string }
+                                description: { type: string }
+                                filePath: { type: string }
+                                fileType: { type: string }
+                                fileSize: { type: integer }
+                                startTime: { type: string, format: date-time }
+                                endTime: { type: string, format: date-time }
+                                rotationOrder: { type: integer }
+                                durationMinutes: { type: integer }
+
+  /api/analytics/subjects:
+    get:
+      tags: [Principal]
+      summary: Subject-wise analytics dashboard (Principal only)
+      description: |
+        Returns comprehensive analytics including:
+        - Overview (total content, approval stats, currently live count, most active subject)
+        - Per-subject breakdown (approved/pending/rejected counts)
+        - Per-teacher breakdown
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      overview:
+                        type: object
+                        properties:
+                          totalContent: { type: integer }
+                          totalApproved: { type: integer }
+                          totalPending: { type: integer }
+                          totalRejected: { type: integer }
+                          currentlyLive: { type: integer }
+                          mostActiveSubject: { type: string, nullable: true }
+                      subjects:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            subject: { type: string }
+                            total: { type: integer }
+                            approved: { type: integer }
+                            pending: { type: integer }
+                            rejected: { type: integer }
+                      teacherBreakdown:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            teacherId: { type: integer }
+                            teacherName: { type: string }
+                            total: { type: integer }
+                            approved: { type: integer }
+                            pending: { type: integer }
+                            rejected: { type: integer }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            user:
+              type: object
+              properties:
+                id: { type: integer }
+                name: { type: string }
+                email: { type: string }
+                role: { type: string }
+                createdAt: { type: string, format: date-time }
+            token: { type: string }

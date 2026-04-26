@@ -1,0 +1,16 @@
+const ROLES = {
+  PRINCIPAL: "PRINCIPAL",
+  TEACHER: "TEACHER"
+};
+
+const CONTENT_STATUS = {
+  UPLOADED: "UPLOADED",
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED"
+};
+
+module.exports = {
+  ROLES,
+  CONTENT_STATUS
+};
