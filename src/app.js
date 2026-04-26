@@ -25,6 +25,11 @@ app.use(globalLimiter);
 // Static file serving for local uploads
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
+// Root redirect to API docs
+app.get("/", (_req, res) => {
+  res.redirect("/api-docs");
+});
+
 // Health check
 app.get("/health", (_req, res) => {
   res.status(200).json({ success: true, message: "Server is healthy" });
