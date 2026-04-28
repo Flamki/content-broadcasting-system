@@ -25,9 +25,15 @@ app.use(globalLimiter);
 // Static file serving for local uploads
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-// Root redirect to API docs
+// Root welcome
 app.get("/", (_req, res) => {
-  res.redirect("/api-docs");
+  res.status(200).json({
+    success: true,
+    message: "Content Broadcasting System API",
+    version: "1.0.0",
+    docs: "/api-docs",
+    health: "/health"
+  });
 });
 
 // Health check
